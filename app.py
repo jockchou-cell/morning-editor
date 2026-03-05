@@ -5,130 +5,111 @@ import time
 import requests
 import random
 
-# 页面配置
-st.set_page_config(page_title="朝起拾要·全能工作室", layout="wide", page_icon="☀️")
+# 1. 页面配置 & 样式优化
+st.set_page_config(page_title="朝起拾要·爆文工作室", layout="wide", page_icon="🚀")
 
-# --- 1. 初始化保险箱 ---
-if 'article_cache' not in st.session_state:
-    st.session_state['article_cache'] = ""
-if 'news_cache' not in st.session_state:
-    st.session_state['news_cache'] = []
-if 'input_cache' not in st.session_state:
-    st.session_state['input_cache'] = ""
+# 自定义 CSS 提升产品感
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stButton>button { width: 100%; border-radius: 8px; height: 3em; background-color: #FF4B4B; color: white; }
+    .stTextArea>div>div>textarea { border-radius: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- 2. 侧边栏：朝起拾要 ---
+# --- 2. 缓存机制 (优化加载速度) ---
+@st.cache_data(ttl=600) # 缓存10分钟
+def get_hot_news_cached():
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    urls = ["https://api.oick.cn/api/baidu", "https://tenapi.cn/v2/webhot"]
+    for url in urls:
+        try:
+            resp = requests.get(url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                return [item.get('title') or item.get('name') for item in (data if isinstance(data, list) else data.get('data', []))[:10]]
+        except: continue
+    return []
+
+# --- 3. 初始化保险箱 ---
+for key in ['article_cache', 'news_cache', 'input_cache', 'titles_cache']:
+    if key not in st.session_state: st.session_state[key] = "" if 'cache' in key else []
+
+# --- 4. 侧边栏 ---
 with st.sidebar:
-    st.title("☀️ 朝起拾要")
-    st.divider()
-    
-    # 智能 Key 检测
+    st.title("☀️ 朝起拾要 v4.0")
     ds_key = st.secrets.get("ds_key")
-    if ds_key:
-        st.success("✅ DeepSeek API 已自动配置")
-    else:
-        ds_key = st.text_input("DeepSeek API Key", type="password")
-        st.info("💡 提示：在云端配置 Secrets 后，此框将消失。")
-
-    st.caption("核心模型：DeepSeek-V3 | 绘图引擎：Pollinations Cloud")
+    if ds_key: st.success("✅ 云端引擎已就绪")
+    else: ds_key = st.text_input("填入 API Key", type="password")
     
     st.divider()
-    st.subheader("🖼️ 视觉实验室")
-    img_mode = st.radio("获取方式", ["AI 快速出图", "搜索无版权图片"])
+    st.subheader("🖼️ AI 配图专家")
+    user_prompt = st.text_area("图片描述 (自动优化)", placeholder="输入关键词...")
+    if st.button("生成高清配图 🎨"):
+        if user_prompt:
+            seed = random.randint(1, 999999)
+            img_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(user_prompt)}?width=1024&height=512&seed={seed}&nologo=true"
+            st.image(img_url)
+            st.toast("图片已生成！", icon="🖼️")
+
+# --- 5. 主界面布局 ---
+col_l, col_r = st.columns([1, 1.5])
+
+with col_l:
+    st.subheader("🔥 灵感源泉")
+    if st.button("🔄 刷新全网热点"):
+        # 清除缓存强制刷新
+        get_hot_news_cached.clear()
+        st.session_state['news_cache'] = get_hot_news_cached()
     
-    if img_mode == "AI 快速出图":
-        user_prompt = st.text_area("粘贴图片提示词 (英文)", placeholder="例如: Cyberpunk electric car...")
-        if st.button("立即出图 🎨"):
-            if not user_prompt:
-                st.warning("请填入提示词")
-            else:
-                with st.spinner("AI 正在云端渲染，请稍候..."):
-                    # 彻底清洗，防止非法字符中断 URL
-                    clean_p = "".join(e for e in user_prompt if e.isalnum() or e == " ")
-                    encoded = urllib.parse.quote(clean_p.strip())
-                    seed = random.randint(1, 1000000)
-                    # 采用 HTTPS 负载均衡地址，增加成功率
-                    img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=512&seed={seed}&nologo=true"
-                    # 这里改用 markdown 方式，有时比 st.image 在云端更稳
-                    st.markdown(f"![Generated Image]({img_url})")
-                    st.caption("✨ 生成成功，长按或右键图片另存为。")
-    else:
-        st.link_button("Pixabay (图库)", "https://pixabay.com/")
-        st.link_button("Pexels (素材)", "https://www.pexels.com/zh-cn/")
+    if not st.session_state['news_cache']:
+        st.session_state['news_cache'] = get_hot_news_cached()
 
-# --- 3. 主界面：内容编辑 ---
-st.header("内容编辑")
-
-# 热点展示区
-st.subheader("🔥 实时全网热点")
-if st.button("🔄 刷新实时热点"):
-    with st.spinner("正在通过全球节点同步热搜..."):
-        # 换用对海外 IP 响应更友好的百度热搜镜像
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        urls = [
-            "https://api.oick.cn/api/baidu", # 备用源1
-            "https://tenapi.cn/v2/webhot"     # 备用源2
-        ]
-        
-        success = False
-        for url in urls:
-            try:
-                resp = requests.get(url, headers=headers, timeout=5)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    # 根据不同接口结构提取前10条
-                    if "oick" in url:
-                        # 镜像源通常返回列表，此处取前10
-                        st.session_state['news_cache'] = [item['title'] for item in data[:10]]
-                    else:
-                        st.session_state['news_cache'] = [item['name'] for item in data['data'][:10]]
-                    st.success("同步成功！")
-                    success = True
-                    break
-            except:
-                continue
-        
-        if not success:
-            st.error("云端网络波动，建议点击下方媒体链接手动摘取。")
-
-# 渲染按钮
-if st.session_state['news_cache']:
-    cols = st.columns(2)
     for i, n in enumerate(st.session_state['news_cache']):
-        if cols[i % 2].button(f"📌 {n}", key=f"btn_{i}", use_container_width=True):
+        if st.button(f"📌 {n}", key=f"n_{i}"):
             st.session_state['input_cache'] = n
             st.rerun()
-else:
-    st.info("💡 云端同步受限，建议前往最真实的信源：")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.link_button("36氪", "https://36kr.com/technology")
-    c2.link_button("IT之家", "https://www.ithome.com/")
-    c3.link_button("汽车之家", "https://www.autohome.com.cn/")
-    c4.link_button("微博热搜", "https://s.weibo.com/top/summary")
 
-st.divider()
+with col_r:
+    st.subheader("✍️ 创作空间")
+    raw_input = st.text_area("输入素材或热点关键词：", value=st.session_state['input_cache'], height=150)
+    
+    if st.button("开始炼丹 (生成爆文) 🔥"):
+        if not ds_key: st.error("请先配置 Key")
+        elif not raw_input: st.warning("素材呢？")
+        else:
+            client = OpenAI(api_key=ds_key, base_url="https://api.deepseek.com")
+            with st.status("正在进行深度创作...", expanded=True) as status:
+                try:
+                    st.write("🔍 正在分析热点背景...")
+                    time.sleep(1)
+                    st.write("🧠 正在构建爆款逻辑...")
+                    
+                    sys_msg = """你是一个顶级自媒体主编。
+                    输出要求：
+                    1. 给出5个极具点击欲望的[爆款标题]，包含Emoji。
+                    2. 正文要求：[引言]、[深度分析](分段并加粗关键词)、[文末总结]。
+                    3. 风格：犀利口语化，多用Emoji，适合手机阅读。
+                    4. 长度：800字左右。"""
+                    
+                    res = client.chat.completions.create(
+                        model="deepseek-chat",
+                        messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": raw_input}]
+                    )
+                    st.session_state['article_cache'] = res.choices[0].message.content
+                    status.update(label="✅ 生成成功！", state="complete", expanded=False)
+                except Exception as e:
+                    st.error(f"失败了：{e}")
 
-# 编辑区
-raw_input = st.text_area("在此粘贴素材或编辑：", value=st.session_state['input_cache'], height=200)
-
-if st.button("一键生成爆款文 🔥"):
-    if not ds_key:
-        st.error("请配置 API Key")
-    elif not raw_input:
-        st.warning("素材内容为空。")
-    else:
-        client = OpenAI(api_key=ds_key, base_url="https://api.deepseek.com")
-        try:
-            with st.spinner("主编正在疯狂写作..."):
-                sys_msg = "你是一个10万粉科技主编。风格犀利口语化。结构：3个标题、引言、正文、点评。500字以上。"
-                response = client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": raw_input}]
-                )
-                st.session_state['article_cache'] = response.choices[0].message.content
-        except Exception as e:
-            st.error(f"生成失败：{e}")
-
-# 展示结果
-if st.session_state['article_cache']:
-    st.markdown("---")
-    st.markdown(st.session_state['article_cache'])
+    # 结果展示
+    if st.session_state['article_cache']:
+        st.divider()
+        # 增加一键复制按钮
+        st.copy_to_clipboard(st.session_state['article_cache'])
+        st.info("👆 文章已自动进入剪贴板，可直接粘贴到公众号")
+        
+        st.markdown(st.session_state['article_cache'])
+        
+        if st.button("🗑️ 清空内容"):
+            st.session_state['article_cache'] = ""
+            st.rerun()
