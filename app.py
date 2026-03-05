@@ -1,4 +1,3 @@
-好的，这是我的后端代码，帮我修改，我作为一个不会写代码的人，希望部署操作过程不要有太复杂
 import streamlit as st
 from openai import OpenAI
 import urllib.parse
